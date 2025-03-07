@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Player MP3/FLAC</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    
+    .player-container {
+      background-color: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    
+    .header {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    
+    .controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .progress-container {
+      width: 100%;
+      height: 8px;
+      background-color: #e0e0e0;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      cursor: pointer;
+      position: relative;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background-color: #4CAF50;
+      border-radius: 4px;
+      width: 0%;
+    }
+    
+    .time-display {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 20px;
+    }
+    
+    .volume-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    
+    .volume-slider {
+      flex-grow: 1;
+    }
+    
+    .playlist {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    
+    .playlist-item {
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 5px;
+      background-color: #f9f9f9;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+    }
+    
+    .playlist-item:hover {
+      background-color: #e9e9e9;
+    }
+    
+    .playlist-item.active {
+      background-color: #e0f7e0;
+      font-weight: bold;
+    }
+    
+    .file-input-container {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    
+    button {
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    button:hover {
+      background-color: #45a049;
+    }
+    
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    
+    .controls button {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    #fileInput {
+      display: none;
+    }
+    
+    .now-playing {
+      text-align: center;
+      margin-bottom: 15px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    
+    .track-info {
+      font-size: 14px;
+      color: #666;
+      text-align: center;
+      margin-bottom: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="player-container">
+    <div class="header">
+      <h2>MP3/FLAC Player</h2>
+    </div>
+    
+    <div class="file-input-container">
+      <input type="file" id="fileInput" accept=".mp3,.flac" multiple>
+      <button id="browseBtn">Додати треки</button>
+    </div>
+    
+    <div class="now-playing" id="nowPlaying">Відсутній трек</div>
+    <div class="track-info" id="trackInfo"></div>
+    
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    
+    <div class="time-display">
+      <span id="currentTime">0:00</span>
+      <span id="totalTime">0:00</span>
+    </div>
+    
+    <div class="controls">
+      <button id="prevBtn">⏮️</button>
+      <button id="playPauseBtn">▶️</button>
+      <button id="nextBtn">⏭️</button>
+    </div>
+    
+    <div class="volume-container">
+      <span>🔈</span>
+      <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
+      <span>🔊</span>
+    </div>
+    
+    <h3>Плейлист</h3>
+    <ul class="playlist" id="playlist"></ul>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/flac.js/0.3.0/flac.min.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Элементы плеера
+      const fileInput = document.getElementById('fileInput');
+      const browseBtn = document.getElementById('browseBtn');
+      const playPauseBtn = document.getElementById('playPauseBtn');
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+      const progressBar = document.getElementById('progressBar');
+      const progressContainer = document.getElementById('progressContainer');
+      const currentTimeEl = document.getElementById('currentTime');
+      const totalTimeEl = document.getElementById('totalTime');
+      const volumeSlider = document.getElementById('volumeSlider');
+      const playlistEl = document.getElementById('playlist');
+      const nowPlayingEl = document.getElementById('nowPlaying');
+      const trackInfoEl = document.getElementById('trackInfo');
+      
+      // Аудио-контекст
+      const audio = new Audio();
+      
+      // Переменные состояния
+      let playlist = [];
+      let currentTrackIndex = -1;
+      let isPlaying = false;
+      
+      // Инициализация
+      prevBtn.disabled = true;
+      nextBtn.disabled = true;
+      
+      // Обработчики событий
+      browseBtn.addEventListener('click', () => fileInput.click());
+      
+      fileInput.addEventListener('change', handleFilesSelected);
+      
+      playPauseBtn.addEventListener('click', togglePlayPause);
+      
+      prevBtn.addEventListener('click', playPreviousTrack);
+      nextBtn.addEventListener('click', playNextTrack);
+      
+      volumeSlider.addEventListener('input', () => {
+        audio.volume = volumeSlider.value;
+      });
+      
+      progressContainer.addEventListener('click', (e) => {
+        const clickPosition = e.offsetX / progressContainer.offsetWidth;
+        audio.currentTime = clickPosition * audio.duration;
+      });
+      
+      // Аудио-события
+      audio.addEventListener('timeupdate', updateProgress);
+      audio.addEventListener('ended', () => playNextTrack());
+      audio.addEventListener('loadedmetadata', updateTotalTime);
+      
+      // Функции
+      function handleFilesSelected(e) {
+        const files = e.target.files;
+        
+        if (files.length === 0) return;
+        
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          
+          if (file.type === 'audio/mp3' || file.type === 'audio/mpeg' || file.name.endsWith('.mp3') || 
+              file.type === 'audio/flac' || file.name.endsWith('.flac')) {
+            playlist.push({
+              file: file,
+              name: file.name,
+              url: URL.createObjectURL(file)
+            });
+          }
+        }
+        
+        updatePlaylist();
+        
+        if (currentTrackIndex === -1 && playlist.length > 0) {
+          currentTrackIndex = 0;
+          loadTrack(currentTrackIndex);
+        }
+        
+        updateControls();
+      }
+      
+      function updatePlaylist() {
+        playlistEl.innerHTML = '';
+        
+        playlist.forEach((track, index) => {
+          const li = document.createElement('li');
+          li.className = 'playlist-item';
+          if (index === currentTrackIndex) {
+            li.classList.add('active');
+          }
+          
+          li.innerHTML = `
+            <span>${track.name}</span>
+            <span>${getFileExtension(track.name).toUpperCase()}</span>
+          `;
+          
+          li.addEventListener('click', () => {
+            currentTrackIndex = index;
+            loadTrack(currentTrackIndex);
+            playTrack();
+          });
+          
+          playlistEl.appendChild(li);
+        });
+      }
+      
+      function getFileExtension(filename) {
+        return filename.slice((filename.lastIndexOf(".") - 1 >>> 0) + 2);
+      }
+      
+      function loadTrack(index) {
+        if (index < 0 || index >= playlist.length) return;
+        
+        const track = playlist[index];
+        audio.src = track.url;
+        audio.load();
+        
+        nowPlayingEl.textContent = track.name;
+        trackInfoEl.textContent = `${getFileExtension(track.name).toUpperCase()} файл`;
+        
+        updatePlaylist();
+        updateControls();
+      }
+      
+      function togglePlayPause() {
+        if (playlist.length === 0) return;
+        
+        if (isPlaying) {
+          pauseTrack();
+        } else {
+          playTrack();
+        }
+      }
+      
+      function playTrack() {
+        audio.play().then(() => {
+          isPlaying = true;
+          playPauseBtn.textContent = '⏸️';
+        }).catch(error => {
+          console.error('Ошибка воспроизведения:', error);
+        });
+      }
+      
+      function pauseTrack() {
+        audio.pause();
+        isPlaying = false;
+        playPauseBtn.textContent = '▶️';
+      }
+      
+      function playNextTrack() {
+        if (currentTrackIndex < playlist.length - 1) {
+          currentTrackIndex++;
+          loadTrack(currentTrackIndex);
+          if (isPlaying) playTrack();
+        } else {
+          // Закончился плейлист
+          pauseTrack();
+          currentTrackIndex = 0;
+          loadTrack(currentTrackIndex);
+        }
+      }
+      
+      function playPreviousTrack() {
+        if (currentTrackIndex > 0) {
+          currentTrackIndex--;
+          loadTrack(currentTrackIndex);
+          if (isPlaying) playTrack();
+        }
+      }
+      
+      function updateProgress() {
+        const percent = (audio.currentTime / audio.duration) * 100;
+        progressBar.style.width = `${percent}%`;
+        
+        currentTimeEl.textContent = formatTime(audio.currentTime);
+      }
+      
+      function updateTotalTime() {
+        totalTimeEl.textContent = formatTime(audio.duration);
+      }
+      
+      function formatTime(seconds) {
+        if (isNaN(seconds)) return '0:00';
+        
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs < 10 ? '0' + secs : secs}`;
+      }
+      
+      function updateControls() {
+        prevBtn.disabled = currentTrackIndex <= 0;
+        nextBtn.disabled = currentTrackIndex >= playlist.length - 1;
+      }
+    });
+  </script>
+</body>
+</html>
