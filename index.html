@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Player MP3/FLAC</title>
+  <title>PlayIt - play MP3, FLAC</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -128,6 +128,10 @@
       justify-content: center;
     }
     
+    button.active {
+      background-color: #ff9800;
+    }
+    
     #fileInput {
       display: none;
     }
@@ -145,12 +149,19 @@
       text-align: center;
       margin-bottom: 15px;
     }
+    
+    .playlist-controls {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
   </style>
 </head>
 <body>
   <div class="player-container">
     <div class="header">
-      <h2>MP3/FLAC Player</h2>
+      <h2>PlayIt</h2>
     </div>
     
     <div class="file-input-container">
@@ -158,7 +169,7 @@
       <button id="browseBtn">Додати треки</button>
     </div>
     
-    <div class="now-playing" id="nowPlaying">Відсутній трек</div>
+    <div class="now-playing" id="nowPlaying">Немає вибраного треку</div>
     <div class="track-info" id="trackInfo"></div>
     
     <div class="progress-container" id="progressContainer">
@@ -176,6 +187,11 @@
       <button id="nextBtn">⏭️</button>
     </div>
     
+    <div class="playlist-controls">
+      <button id="shuffleBtn" title="Перемішати плейлист">🔀</button>
+      <button id="repeatBtn" title="Повторювати плейлист">🔁</button>
+    </div>
+    
     <div class="volume-container">
       <span>🔈</span>
       <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.1" value="1">
@@ -189,7 +205,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/flac.js/0.3.0/flac.min.js"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // Элементы плеера
+      // Елементи плеєра
       const fileInput = document.getElementById('fileInput');
       const browseBtn = document.getElementById('browseBtn');
       const playPauseBtn = document.getElementById('playPauseBtn');
@@ -203,20 +219,25 @@
       const playlistEl = document.getElementById('playlist');
       const nowPlayingEl = document.getElementById('nowPlaying');
       const trackInfoEl = document.getElementById('trackInfo');
+      const shuffleBtn = document.getElementById('shuffleBtn');
+      const repeatBtn = document.getElementById('repeatBtn');
       
-      // Аудио-контекст
+      // Аудіо-контекст
       const audio = new Audio();
       
-      // Переменные состояния
+      // Змінні стану
       let playlist = [];
+      let originalPlaylist = []; // для сохранения изначального порядка
       let currentTrackIndex = -1;
       let isPlaying = false;
+      let isShuffled = false;
+      let isRepeat = false;
       
-      // Инициализация
+      // Ініціалізація
       prevBtn.disabled = true;
       nextBtn.disabled = true;
       
-      // Обработчики событий
+      // Обробники подій
       browseBtn.addEventListener('click', () => fileInput.click());
       
       fileInput.addEventListener('change', handleFilesSelected);
@@ -225,6 +246,9 @@
       
       prevBtn.addEventListener('click', playPreviousTrack);
       nextBtn.addEventListener('click', playNextTrack);
+      
+      shuffleBtn.addEventListener('click', toggleShuffle);
+      repeatBtn.addEventListener('click', toggleRepeat);
       
       volumeSlider.addEventListener('input', () => {
         audio.volume = volumeSlider.value;
@@ -235,12 +259,12 @@
         audio.currentTime = clickPosition * audio.duration;
       });
       
-      // Аудио-события
+      // Аудіо-події
       audio.addEventListener('timeupdate', updateProgress);
-      audio.addEventListener('ended', () => playNextTrack());
+      audio.addEventListener('ended', handleTrackEnd);
       audio.addEventListener('loadedmetadata', updateTotalTime);
       
-      // Функции
+      // Функції
       function handleFilesSelected(e) {
         const files = e.target.files;
         
@@ -251,11 +275,13 @@
           
           if (file.type === 'audio/mp3' || file.type === 'audio/mpeg' || file.name.endsWith('.mp3') || 
               file.type === 'audio/flac' || file.name.endsWith('.flac')) {
-            playlist.push({
+            const track = {
               file: file,
               name: file.name,
               url: URL.createObjectURL(file)
-            });
+            };
+            playlist.push(track);
+            originalPlaylist.push(track);
           }
         }
         
@@ -337,16 +363,31 @@
         playPauseBtn.textContent = '▶️';
       }
       
+      function handleTrackEnd() {
+        if (isRepeat && currentTrackIndex === playlist.length - 1) {
+          // Если включен повтор и это последний трек
+          currentTrackIndex = 0;
+          loadTrack(currentTrackIndex);
+          playTrack();
+        } else {
+          // Обычное поведение - следующий трек
+          playNextTrack();
+        }
+      }
+      
       function playNextTrack() {
         if (currentTrackIndex < playlist.length - 1) {
           currentTrackIndex++;
           loadTrack(currentTrackIndex);
           if (isPlaying) playTrack();
+        } else if (isRepeat) {
+          // Если включен повтор и это последний трек
+          currentTrackIndex = 0;
+          loadTrack(currentTrackIndex);
+          if (isPlaying) playTrack();
         } else {
           // Закончился плейлист
           pauseTrack();
-          currentTrackIndex = 0;
-          loadTrack(currentTrackIndex);
         }
       }
       
@@ -355,6 +396,55 @@
           currentTrackIndex--;
           loadTrack(currentTrackIndex);
           if (isPlaying) playTrack();
+        }
+      }
+      
+      function toggleShuffle() {
+        isShuffled = !isShuffled;
+        
+        if (isShuffled) {
+          // Зберігаємо поточний трек
+          const currentTrack = playlist[currentTrackIndex];
+          
+          // Перемішуємо плейлист
+          shufflePlaylist();
+          
+          // Знаходимо індекс поточного треку в перемішаному плейлисті
+          currentTrackIndex = playlist.findIndex(track => track === currentTrack);
+          
+          shuffleBtn.classList.add('active');
+        } else {
+          // Зберігаємо поточний трек
+          const currentTrack = playlist[currentTrackIndex];
+          
+          // Відновлюємо оригінальний порядок
+          playlist = [...originalPlaylist];
+          
+          // Знаходимо індекс поточного треку в оригінальному плейлисті
+          currentTrackIndex = playlist.findIndex(track => track === currentTrack);
+          
+          shuffleBtn.classList.remove('active');
+        }
+        
+        updatePlaylist();
+        updateControls();
+      }
+      
+      function shufflePlaylist() {
+        // Алгоритм Фішера-Єйтса для перемішування масиву
+        for (let i = playlist.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [playlist[i], playlist[j]] = [playlist[j], playlist[i]];
+        }
+      }
+      
+      function toggleRepeat() {
+        isRepeat = !isRepeat;
+        
+        if (isRepeat) {
+          repeatBtn.classList.add('active');
+        } else {
+          repeatBtn.classList.remove('active');
         }
       }
       
